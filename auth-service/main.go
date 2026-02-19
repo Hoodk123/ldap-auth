@@ -12,7 +12,7 @@ func main(){
 	_ = godotenv.Load("../.env")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", api.LoginHandler)
+	mux.HandleFunc("/auth/login", api.RateLimitMiddleware(api.LoginHandler))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok"}`)
