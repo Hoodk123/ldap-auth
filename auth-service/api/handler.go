@@ -16,7 +16,7 @@ import (
 // This is intentional — it is our API contract, not a leaked secret.
 type LoginRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"` //nolint:gosec
+	Password string `json:"password"` // #nosec G101 -- intentional API field, nota hardcoded secret
 }
 
 type LoginResponse struct {
