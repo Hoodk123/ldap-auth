@@ -1,29 +1,29 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"sync"
 	"time"
 )
 
 type rateLimiter struct {
-	attempts  map[string][]time.Time
-	mu        sync.Mutex
+	attempts    map[string][]time.Time
+	locked      map[string]time.Time
+	mu          sync.Mutex
 	maxAttempts int
-	window    time.Duration
-	lockout   time.Duration
-	locked    map[string]time.Time
+	window      time.Duration
+	lockout     time.Duration
 }
 
 func newRateLimiter() *rateLimiter {
 	rl := &rateLimiter{
 		attempts:    make(map[string][]time.Time),
 		locked:      make(map[string]time.Time),
-		maxAttempts: 5,               // 5 attempts
-		window:      time.Minute,     // per minute
-		lockout:     15 * time.Minute, // lockout for 15 min
+		maxAttempts: 5,
+		window:      time.Minute,
+		lockout:     15 * time.Minute,
 	}
-	// Background cleanup to prevent memory leak
 	go rl.cleanup()
 	return rl
 }
@@ -49,7 +49,6 @@ func (rl *rateLimiter) isAllowed(ip string) (bool, string) {
 
 	now := time.Now()
 
-	// Check if currently locked out
 	if lockedUntil, exists := rl.locked[ip]; exists {
 		if now.Before(lockedUntil) {
 			remaining := time.Until(lockedUntil).Round(time.Second)
@@ -59,7 +58,6 @@ func (rl *rateLimiter) isAllowed(ip string) (bool, string) {
 		delete(rl.attempts, ip)
 	}
 
-	// Filter attempts within the window
 	windowStart := now.Add(-rl.window)
 	var recent []time.Time
 	for _, t := range rl.attempts[ip] {
@@ -83,8 +81,7 @@ func (rl *rateLimiter) record(ip string) {
 	rl.attempts[ip] = append(rl.attempts[ip], time.Now())
 }
 
-// Global limiter instance
-var limiter = newRateLimiter()
+var limiter = newRateLimiter() //nolint:gosec
 
 func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +91,10 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if !allowed {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"` + reason + `"}`))
+			// Fix #3 — handle the Write error instead of ignoring it
+			if _, err := w.Write([]byte(`{"error":"` + reason + `"}`)); err != nil {
+				log.Printf("rate limit response write error: %v", err)
+			}
 			return
 		}
 
@@ -102,7 +102,6 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Call this on failed login attempts only
 func RecordFailedAttempt(ip string) {
 	limiter.record(ip)
 }
