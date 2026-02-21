@@ -1,0 +1,103 @@
+name: Security Pipeline
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+# Global permissions — least privilege by default
+# Each job can override and request only what it needs
+permissions:
+  contents: read        # read repo code — required by all jobs
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1 — TruffleHog: scan for leaked secrets
+  # ─────────────────────────────────────────────
+  trufflehog:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # read git history to scan all commits
+    steps:
+      - name: Checkout — full history required for secret scanning
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 0 = entire git history, not just latest commit
+
+      - name: TruffleHog — Scan for leaked secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          extra_args: --only-verified  # only flag confirmed real secrets, reduces noise
+
+  # ─────────────────────────────────────────────
+  # JOB 2 — Gosec: Go source code security audit
+  # ─────────────────────────────────────────────
+  gosec:
+    name: Go Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read        # read source code
+      security-events: write # post findings to GitHub Security tab (SARIF)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install Gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Gosec — Run security scan on auth-service
+        run: |
+          gosec -fmt sarif -out gosec-results.sarif ./auth-service/... || true
+          # || true prevents pipeline failure on findings
+          # findings are reported to Security tab instead
+
+      - name: Upload Gosec results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()  # upload even if gosec found issues
+        with:
+          sarif_file: gosec-results.sarif
+          category: gosec
+
+  # ─────────────────────────────────────────────
+  # JOB 4 — Go build check (does it compile?)
+  # ─────────────────────────────────────────────
+  build:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Download dependencies
+        working-directory: ./auth-service
+        run: go mod download
+
+      - name: Verify dependencies integrity
+        working-directory: ./auth-service
+        run: go mod verify  # ensures no dependency tampering
+
+      - name: Build
+        working-directory: ./auth-service
+        run: go build -v ./...
+
+      - name: Vet — Go static analysis
+        working-directory: ./auth-service
+        run: go vet ./...
