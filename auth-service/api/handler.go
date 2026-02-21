@@ -44,6 +44,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !ok {
+	    RecordFailedAttempt(r.RemoteAddr) // ← add this line
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(LoginResponse{Error: "invalid credentials"})
 		return
