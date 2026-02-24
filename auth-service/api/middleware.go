@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/Hoodk123/ldap-auth/metrics"
 )
 
 type rateLimiter struct {
@@ -89,9 +91,10 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		allowed, reason := limiter.isAllowed(ip)
 		if !allowed {
+			// record that this IP got rate limited
+			metrics.RateLimitedTotal.Inc()
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			// Fix #3 — handle the Write error instead of ignoring it
 			if _, err := w.Write([]byte(`{"error":"` + reason + `"}`)); err != nil {
 				log.Printf("rate limit response write error: %v", err)
 			}

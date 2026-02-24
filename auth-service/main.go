@@ -7,13 +7,17 @@ import (
 
 	"github.com/Hoodk123/ldap-auth/api"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+    "github.com/Hoodk123/ldap-auth/metrics"
 )
 
 func main() {
 	_ = godotenv.Load("../.env")
+	metrics.Register()  // register our custom metrics
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/login", api.RateLimitMiddleware(api.LoginHandler))
+	mux.Handle("/metrics", promhttp.Handler())  // Prometheus scrapes here
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {

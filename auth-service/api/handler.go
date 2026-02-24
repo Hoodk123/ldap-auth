@@ -7,16 +7,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	ldapclient "github.com/Hoodk123/ldap-auth/ldap"
+	"github.com/Hoodk123/ldap-auth/metrics"
+	"github.com/golang-jwt/jwt/v5"
 )
 
-// LoginRequest holds credentials from the client.
-// Fix #2 — gosec flags "Password" field matching secret pattern.
-// This is intentional — it is our API contract, not a leaked secret.
 type LoginRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"` // #nosec G101 
+	Password string `json:"password"` // #nosec G101
 }
 
 type LoginResponse struct {
@@ -24,8 +22,6 @@ type LoginResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-// writeJSON is a helper that handles the json.Encode error in one place
-// Fix #3 — every Encode() call was silently ignoring errors
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -55,12 +51,16 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	ok, err := client.Authenticate(req.Username, req.Password)
 	if err != nil {
 		log.Printf("authentication error for user %s: %v", req.Username, err)
+		// record system-level error — LDAP unreachable etc
+		metrics.LoginAttempts.WithLabelValues("error").Inc()
 		writeJSON(w, http.StatusInternalServerError, LoginResponse{Error: "authentication error"})
 		return
 	}
 
 	if !ok {
 		RecordFailedAttempt(r.RemoteAddr)
+		// record wrong password attempt
+		metrics.LoginAttempts.WithLabelValues("failure").Inc()
 		writeJSON(w, http.StatusUnauthorized, LoginResponse{Error: "invalid credentials"})
 		return
 	}
@@ -79,5 +79,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// record successful login
+	metrics.LoginAttempts.WithLabelValues("success").Inc()
 	writeJSON(w, http.StatusOK, LoginResponse{Token: tokenString})
 }
