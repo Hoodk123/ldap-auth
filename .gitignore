@@ -1,2 +1,7 @@
 .env
 *.env
+supabase/.env
+supabase/config.toml
+supabase/.temp
+supabase/.branches
+

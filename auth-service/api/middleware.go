@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -87,12 +88,19 @@ var limiter = newRateLimiter() //nolint:gosec
 
 func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
 
 		allowed, reason := limiter.isAllowed(ip)
 		if !allowed {
-			// record that this IP got rate limited
 			metrics.RateLimitedTotal.Inc()
+
+			// emit threat asynchronously — don't block the response
+			go EmitThreat(ip, "", "RATE_LIMITED", "HIGH",
+				"IP blocked after too many failed attempts")
+
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			if _, err := w.Write([]byte(`{"error":"` + reason + `"}`)); err != nil {
@@ -106,5 +114,9 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func RecordFailedAttempt(ip string) {
-	limiter.record(ip)
+	host, _, err := net.SplitHostPort(ip)
+	if err != nil {
+		host = ip
+	}
+	limiter.record(host)
 }

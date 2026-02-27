@@ -28,11 +28,30 @@ services:
       - LDAP_ADMIN_PASSWORD=${LDAP_ADMIN_PASSWORD}
       - LDAP_ROOT=${LDAP_ROOT}
       - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
+      - THREAT_SERVICE_URL=${THREAT_SERVICE_URL} 
     depends_on:
       - openldap
     networks:
       - auth-network
-
+  threat-service:
+    build: ./threat-service
+    container_name: threat-service
+    ports:
+      - "8082:8082"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSLMODE=${DB_SSLMODE}
+    depends_on:
+      - auth-service
+    networks:
+      - auth-network
   prometheus-init:
     image: busybox
     container_name: prometheus-init
@@ -87,7 +106,7 @@ services:
 networks:
   auth-network:
     driver: bridge
-
+    
 volumes:
   prometheus-data:
   grafana-data:

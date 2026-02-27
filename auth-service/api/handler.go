@@ -59,9 +59,15 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		RecordFailedAttempt(r.RemoteAddr)
-		// record wrong password attempt
 		metrics.LoginAttempts.WithLabelValues("failure").Inc()
-		writeJSON(w, http.StatusUnauthorized, LoginResponse{Error: "invalid credentials"})
+
+		// emit threat for every failed login attempt
+		go EmitThreat(r.RemoteAddr, req.Username,
+			"FAILED_LOGIN", "MEDIUM",
+			"Invalid credentials provided")
+
+		writeJSON(w, http.StatusUnauthorized,
+			LoginResponse{Error: "invalid credentials"})
 		return
 	}
 
